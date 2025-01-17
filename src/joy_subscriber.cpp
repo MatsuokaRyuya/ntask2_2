@@ -6,6 +6,57 @@ JoySubscriber::JoySubscriber() : Node("joy_subscriber")
     subscription_ = this->create_subscription<sensor_msgs::msg::Joy>( 
         "/joy", 10, std::bind(&JoySubscriber::joyCallback, this, std::placeholders::_1));
 
+    // Dynamixelモーター制御用の速度コマンドパブリッシャー
+    speed_publisher_ = this->create_publisher<std_msgs::msg::Float64>("/dynamixel_motor/speed_command", 10);
+
+    // ラックアンドピニオン位置制御用のパブリッシャー
+    position_publisher_ = this->create_publisher<std_msgs::msg::Float64>("/rack_position/command", 10);
+
+    RCLCPP_INFO(this->get_logger(), "JoySubscriber has been started.");
+}
+
+void JoySubscriber::joyCallback(const sensor_msgs::msg::Joy::SharedPtr msg) 
+{
+    // 左スティックの上下 (axes[1]) を速度として使用
+    double speed = msg->axes[1] * 300.0;  // スティックの上下を速度に変換（任意調整可能）
+
+    // 右スティックの横移動 (axes[3]) をラックの位置に変換
+    double right_stick_input = msg->axes[3];
+    double max_rack_displacement = 10 ; // 最大ラック移動量（mm）
+    double rack_position = right_stick_input * max_rack_displacement; // ラックの位置（mm）
+
+    // 速度コマンドメッセージを作成
+    auto speed_msg = std::make_shared<std_msgs::msg::Float64>();
+    speed_msg->data = speed;
+
+    // ラックの位置コマンドメッセージを作成
+    auto position_msg = std::make_shared<std_msgs::msg::Float64>();
+    position_msg->data = rack_position;
+
+    // トピックにメッセージを送信
+    speed_publisher_->publish(*speed_msg);
+    position_publisher_->publish(*position_msg);
+
+    RCLCPP_INFO(this->get_logger(), "Published speed: %.2f, Rack position: %.2f mm", speed, rack_position);
+}
+
+int main(int argc, char **argv) 
+{
+    rclcpp::init(argc, argv);
+    rclcpp::spin(std::make_shared<JoySubscriber>());
+    rclcpp::shutdown();
+    return 0;
+}
+
+
+/*#include "ntask2_2/ntask2_2_joy.hpp"
+
+JoySubscriber::JoySubscriber() : Node("joy_subscriber") 
+{
+    // Joyトピックの購読
+    subscription_ = this->create_subscription<sensor_msgs::msg::Joy>( 
+        "/joy", 10, std::bind(&JoySubscriber::joyCallback, this, std::placeholders::_1));
+
     // Dynamixelモーター制御用のパブリッシャーを作成
     publisher_ = this->create_publisher<std_msgs::msg::Float64>("/dynamixel_motor/command", 10);
 
@@ -54,7 +105,7 @@ int main(int argc, char **argv)
 }
 
 
-/*
+
 #include "ntask2_2/ntask2_2_joy.hpp"
 
 JoySubscriber::JoySubscriber() : Node("joy_subscriber") 
