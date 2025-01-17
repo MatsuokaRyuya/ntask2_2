@@ -1,4 +1,4 @@
-#include "ntask2_2/ntask2_2.hpp"
+#include "ntask2_2/ntask2_2_joy.hpp"
 
 JoySubscriber::JoySubscriber() : Node("joy_subscriber") 
 {
@@ -23,7 +23,7 @@ void JoySubscriber::joyCallback(const sensor_msgs::msg::Joy::SharedPtr msg)
                         [](std::string a, int b) { return a + (a.empty() ? "" : ", ") + std::to_string(b); }).c_str());
 
     // 左スティックの上下 (axes[1]) をDynamixelモーターの速度として使用
-    double speed = msg->axes[1] * 100.0; // スケーリング (例: -100 ~ 100)
+    double speed = msg->axes[1] * 300.0;
 
     // モーター制御メッセージを作成
     auto command_msg = std::make_shared<std_msgs::msg::Float64>();

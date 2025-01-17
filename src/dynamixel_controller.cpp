@@ -1,4 +1,4 @@
-#include "ntask2_2/ntask2_2.hpp"
+#include "ntask2_2/ntask2_2_dynamixel.hpp"
 
 DynamixelController::DynamixelController() : Node("dynamixel_controller") 
 {
@@ -29,7 +29,7 @@ DynamixelController::DynamixelController() : Node("dynamixel_controller")
         rclcpp::shutdown();
     }
 
-    motor_ids_ = {1, 2};
+    motor_ids_ = {1};
 
     for (uint8_t id : motor_ids_) {
         enableTorque(id);

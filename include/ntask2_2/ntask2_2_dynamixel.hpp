@@ -1,5 +1,5 @@
-#ifndef NTASK2_2_HPP
-#define NTASK2_2_HPP
+#ifndef NTASK2_2_DYNAMIXEL_HPP
+#define NTASK2_2_DYNAMIXEL_HPP
 
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/int32.hpp"
@@ -9,19 +9,6 @@
 #include <vector>
 #include "std_msgs/msg/float64.hpp"
 #include "dynamixel_sdk/dynamixel_sdk.h" // Dynamixel SDKのヘッダー
-
-class JoySubscriber : public rclcpp::Node 
-{
-public:
-    JoySubscriber();
-
-private:
-    void joyCallback(const sensor_msgs::msg::Joy::SharedPtr msg);
-
-    rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr subscription_; // Joyトピックの購読
-    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr publisher_;      // Dynamixel制御用パブリッシャー
-};
-
 
 
 class DynamixelController : public rclcpp::Node 
