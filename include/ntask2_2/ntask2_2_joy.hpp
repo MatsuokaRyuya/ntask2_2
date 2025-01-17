@@ -21,3 +21,4 @@ private:
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr publisher_;      // Dynamixel制御用パブリッシャー
 };
 
+#endif
