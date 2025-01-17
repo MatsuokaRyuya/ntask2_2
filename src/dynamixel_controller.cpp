@@ -29,6 +29,147 @@ DynamixelController::DynamixelController() : Node("dynamixel_controller")
         rclcpp::shutdown();
     }
 
+    motor_ids_ = {1}; // 使用するモーターのIDを設定
+
+    // 各モーターの初期設定
+    for (uint8_t id : motor_ids_) 
+    {
+        enableTorque(id);
+        setLED(id, true); // 起動時にLEDを点灯
+    }
+}
+
+DynamixelController::~DynamixelController() 
+{
+    for (uint8_t id : motor_ids_) 
+    {
+        setLED(id, false); // 終了時にLEDを消灯
+        disableTorque(id);
+    }
+    portHandler_->closePort();
+}
+
+void DynamixelController::commandCallback(const std_msgs::msg::Float64::SharedPtr msg) 
+{
+    double speed = msg->data;
+    int32_t velocity_value = static_cast<int32_t>(speed);
+    for (uint8_t id : motor_ids_) 
+    {
+        sendVelocityCommand(id, velocity_value);
+    }
+
+    RCLCPP_INFO(this->get_logger(), "Set velocity: %.2f", speed);
+}
+
+void DynamixelController::enableTorque(uint8_t id) 
+{
+    uint8_t dxl_error = 0;
+    int dxl_comm_result = packetHandler_->write1ByteTxRx(portHandler_, id, 64, 1, &dxl_error);
+    if (dxl_comm_result != COMM_SUCCESS) 
+    {
+        RCLCPP_ERROR(this->get_logger(), "Torque enable failed: %s", packetHandler_->getTxRxResult(dxl_comm_result));
+    } 
+    else if (dxl_error != 0) 
+    {
+        RCLCPP_ERROR(this->get_logger(), "Torque enable error: %s", packetHandler_->getRxPacketError(dxl_error));
+    } 
+    else 
+    {
+        RCLCPP_INFO(this->get_logger(), "Torque enabled for motor ID %d", id);
+    }
+}
+
+void DynamixelController::disableTorque(uint8_t id) 
+{
+    uint8_t dxl_error = 0;
+    int dxl_comm_result = packetHandler_->write1ByteTxRx(portHandler_, id, 64, 0, &dxl_error);
+    if (dxl_comm_result != COMM_SUCCESS) 
+    {
+        RCLCPP_ERROR(this->get_logger(), "Torque disable failed: %s", packetHandler_->getTxRxResult(dxl_comm_result));
+    } 
+    else if (dxl_error != 0) 
+    {
+        RCLCPP_ERROR(this->get_logger(), "Torque disable error: %s", packetHandler_->getRxPacketError(dxl_error));
+    } 
+    else 
+    {
+        RCLCPP_INFO(this->get_logger(), "Torque disabled for motor ID %d", id);
+    }
+}
+
+void DynamixelController::sendVelocityCommand(uint8_t id, int32_t velocity) 
+{
+    uint8_t dxl_error = 0;
+    int dxl_comm_result = packetHandler_->write4ByteTxRx(portHandler_, id, 104, velocity, &dxl_error);
+    if (dxl_comm_result != COMM_SUCCESS) 
+    {
+        RCLCPP_ERROR(this->get_logger(), "Failed to set velocity: %s", packetHandler_->getTxRxResult(dxl_comm_result));
+    } 
+    else if (dxl_error != 0) 
+    {
+        RCLCPP_ERROR(this->get_logger(), "Velocity set error: %s", packetHandler_->getRxPacketError(dxl_error));
+    }
+}
+
+void DynamixelController::setLED(uint8_t id, bool state) 
+{
+    uint8_t dxl_error = 0;
+    int dxl_comm_result = packetHandler_->write1ByteTxRx(portHandler_, id, 65, state ? 1 : 0, &dxl_error); // 65番アドレスでLED制御
+    if (dxl_comm_result != COMM_SUCCESS) 
+    {
+        RCLCPP_ERROR(this->get_logger(), "LED state error: %s", packetHandler_->getTxRxResult(dxl_comm_result));
+    } 
+    else if (dxl_error != 0) 
+    {
+        RCLCPP_ERROR(this->get_logger(), "LED state error: %s", packetHandler_->getRxPacketError(dxl_error));
+    } 
+    else 
+    {
+        RCLCPP_INFO(this->get_logger(), "LED state set to: %d", state);
+    }
+}
+
+
+int main(int argc, char **argv) 
+{
+    rclcpp::init(argc, argv);
+    rclcpp::spin(std::make_shared<DynamixelController>());
+    rclcpp::shutdown();
+    return 0;
+}
+
+/*
+#include "ntask2_2/ntask2_2_dynamixel.hpp"
+
+DynamixelController::DynamixelController() : Node("dynamixel_controller") 
+{
+    subscription_ = this->create_subscription<std_msgs::msg::Float64>(
+        "/dynamixel_motor/command", 10,
+        std::bind(&DynamixelController::commandCallback, this, std::placeholders::_1));
+
+    portHandler_ = dynamixel::PortHandler::getPortHandler("/dev/ttyUSB0");
+    packetHandler_ = dynamixel::PacketHandler::getPacketHandler(2.0);
+
+    if (portHandler_->openPort()) 
+    {
+        RCLCPP_INFO(this->get_logger(), "Port opened successfully.");
+    } 
+    else 
+    {
+        RCLCPP_ERROR(this->get_logger(), "Failed to open the port.");
+        rclcpp::shutdown();
+    }
+
+    if (portHandler_->setBaudRate(57600)) 
+    {
+        RCLCPP_INFO(this->get_logger(), "Baudrate set successfully.");
+    } 
+    else 
+    {
+        RCLCPP_ERROR(this->get_logger(), "Failed to set baudrate.");
+        rclcpp::shutdown();
+    }
+
     motor_ids_ = {1};
 
     for (uint8_t id : motor_ids_) {
@@ -47,7 +188,7 @@ DynamixelController::~DynamixelController()
 void DynamixelController::commandCallback(const std_msgs::msg::Float64::SharedPtr msg) 
 {
     double speed = msg->data;
-    int32_t velocity_value = static_cast<int32_t>(speed * 10.23);
+    int32_t velocity_value = static_cast<int32_t>(speed);
     for (uint8_t id : motor_ids_) {
         sendVelocityCommand(id, velocity_value);
     }
@@ -105,8 +246,7 @@ void DynamixelController::sendVelocityCommand(uint8_t id, int32_t velocity)
     }
 }
 
-
-int main(int argc, char **argv) 
+argv) 
 {
     rclcpp::init(argc, argv);
     rclcpp::spin(std::make_shared<DynamixelController>());
@@ -116,21 +256,6 @@ int main(int argc, char **argv)
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/*
 class DynamixelController : public rclcpp::Node
 {
 public:
@@ -143,7 +268,9 @@ public:
 
         // Dynamixel SDKの設定
         portHandler_ = dynamixel::PortHandler::getPortHandler("/dev/ttyUSB0"); // dynamixelモーターと通信するポートを設定する。ここでは/dev/ttyUSB0
-        packetHandler_ = dynamixel::PacketHandler::getPacketHandler(2.0);     // 使用するdynamixelプロトコルのバージョンを設定する
+        packetHandler_ = dy
+}
+
 
         if (portHandler_->openPort()) //通信ポートを開いて正常に開いたかログに出す、開けなかったらノードをシャットダウンする
         {
@@ -155,11 +282,13 @@ public:
             rclcpp::shutdown();
         }
 
-        if (portHandler_->setBaudRate(57600)) //dynamixelモーターとの通信速度（BaudRate）を57600にする、それが成功したかをログに出す
-        {
-            RCLCPP_INFO(this->get_logger(), "Baudrate set successfully.");
-        }
-        else
+        if (portHandler_->
+}
+
+
+}
+
+
         {
             RCLCPP_ERROR(this->get_logger(), "Failed to set baudrate.");
             rclcpp::shutdown();

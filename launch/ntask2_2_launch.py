@@ -21,4 +21,10 @@ def generate_launch_description():
                 {'baud_rate': 57600}           # 通信速度
             ]
         ),
+        Node(
+            package='joy',
+            executable='joy_node',  # publisher.cpp で作成した実行可能ファイル
+            name='joy_node',
+            output='screen',
+        ),
     ])
