@@ -3,14 +3,14 @@
 DynamixelController::DynamixelController() : Node("dynamixel_controller") 
 {
     // 速度制御用のトピック購読
-    subscription_ = this->create_subscription<std_msgs::msg::Float64>(
-        "/dynamixel_motor/command", 10,
-        std::bind(&DynamixelController::commandCallback, this, std::placeholders::_1));
+    speed_subscription_ = this->create_subscription<std_msgs::msg::Float64>(
+        "/dynamixel_motor/speed_command", 10,
+        std::bind(&DynamixelController::speedCallback, this, std::placeholders::_1));
 
     // ラックアンドピニオン位置制御用のトピック購読
-    rack_position_subscription_ = this->create_subscription<std_msgs::msg::Float64>(
-        "/rack_position/command", 10,
-        std::bind(&DynamixelController::setRackPositionCallback, this, std::placeholders::_1));
+    position_subscription_ = this->create_subscription<std_msgs::msg::Float64>(
+        "/dynamixel_motor/command", 10,
+        std::bind(&DynamixelController::positionCallback, this, std::placeholders::_1));
 
     portHandler_ = dynamixel::PortHandler::getPortHandler("/dev/ttyUSB0");
     packetHandler_ = dynamixel::PacketHandler::getPacketHandler(2.0);
@@ -44,7 +44,7 @@ DynamixelController::DynamixelController() : Node("dynamixel_controller")
         if (id == 3) 
         {
             setPositionControlMode(id); // ID 3を位置制御モードに設定
-            sendPositionCommand(id, 2048); // 初期位置を2048に設定
+            sendPositionCommand(id, 1400); // 初期位置を1400に設定
         }
         setLED(id, true); // 起動時にLEDを点灯
     }
@@ -60,7 +60,7 @@ DynamixelController::~DynamixelController()
     portHandler_->closePort();
 }
 
-void DynamixelController::commandCallback(const std_msgs::msg::Float64::SharedPtr msg) 
+void DynamixelController::speedCallback(const std_msgs::msg::Float64::SharedPtr msg) 
 {
     double speed = msg->data;
     int32_t velocity_value = static_cast<int32_t>(speed);
@@ -71,21 +71,17 @@ void DynamixelController::commandCallback(const std_msgs::msg::Float64::SharedPt
     RCLCPP_INFO(this->get_logger(), "Set velocity: %.2f", speed);
 }
 
-void DynamixelController::setRackPositionCallback(const std_msgs::msg::Float64::SharedPtr msg) 
+void DynamixelController::positionCallback(const std_msgs::msg::Float64::SharedPtr msg) 
 {
-    double displacement_mm = msg->data;//-1から1まで
-    double steps_per_mm = 100; //4096/360=11.37で1度につき11ステップ,2048+-100にしてみる
-    int32_t position_value = static_cast<int32_t>(2048 + displacement_mm * steps_per_mm);
+    double displacement_mm = msg->data; // -1から1まで
+    double steps_per_mm = 100; // 1mmあたりのステップ数
+    int32_t position_value = static_cast<int32_t>(1400 + displacement_mm * steps_per_mm);
 
-    // 範囲を 2048+-100 に制限
-    const int32_t min_position = 1948;
-    const int32_t max_position = 2148;
+    // 範囲を1400±500に制限
+    const int32_t min_position = 900;
+    const int32_t max_position = 1900;
 
-    if (position_value < min_position) {
-        position_value = min_position;
-    } else if (position_value > max_position) {
-        position_value = max_position;
-    }
+    position_value = std::clamp(position_value, min_position, max_position);
 
     sendPositionCommand(3, position_value); // ID 3のモーターを制御
     RCLCPP_INFO(this->get_logger(), "Rack position command: %.2f mm, steps: %d", displacement_mm, position_value);
