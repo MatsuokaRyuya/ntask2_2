@@ -91,7 +91,6 @@ void DynamixelController::setRackPositionCallback(const std_msgs::msg::Float64::
     RCLCPP_INFO(this->get_logger(), "Rack position command: %.2f mm, steps: %d", displacement_mm, position_value);
 }
 
-
 void DynamixelController::enableTorque(uint8_t id) 
 {
     uint8_t dxl_error = 0;
