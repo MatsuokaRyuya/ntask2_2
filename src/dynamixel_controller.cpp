@@ -51,7 +51,8 @@ DynamixelController::DynamixelController() : Node("dynamixel_controller")
         // ID 3を位置制御モードに設定、それ以外は速度制御
         if (id == 3) 
         {
-            setPositionControlMode(id);
+            setPositionControlMode(id); // ID 3を位置制御モードに設定
+            sendPositionCommand(id, 2048); // 初期位置を2048に設定
         }
 
         setLED(id, true); // 起動時にLEDを点灯
@@ -141,18 +142,26 @@ void DynamixelController::speedCommandCallback(const std_msgs::msg::Float64::Sha
 
 void DynamixelController::positionCommandCallback(const std_msgs::msg::Float64::SharedPtr msg)
 {
-    double axes_value = msg->data; // axes[3]の値を受け取る
+    double displacement_mm = msg->data;//-1から1まで
+    double steps_per_mm = 100; //4096/360=11.37で1度につき11ステップ,2048+-100にしてみる
+    int32_t position_value = static_cast<int32_t>(2048 + displacement_mm * steps_per_mm);
 
-    // 右スティックの移動量を位置に変換（適当なスケールファクターを使用）
-    double displacement_mm = axes_value ; // 例えば右スティック1単位を1mm
-    double steps_per_mm = 4096.0 / 100.53; // 1回転 = 4096ステップ、1回転で10mm移動
-    int32_t position_value = static_cast<int32_t>(displacement_mm * steps_per_mm);
+    // 範囲を 2048+-100 に制限
+    const int32_t min_position = 1948;
+    const int32_t max_position = 2148;
+
+    if (position_value < min_position) {
+        position_value = min_position;
+    } else if (position_value > max_position) {
+        position_value = max_position;
+    }
 
     // モーターに位置コマンドを送信
     sendPositionCommand(3, position_value);
 
     RCLCPP_INFO(this->get_logger(), "Rack position command: %.2f mm, steps: %d", displacement_mm, position_value);
 }
+
 
 void DynamixelController::enableTorque(uint8_t id) 
 {
@@ -224,8 +233,19 @@ void DynamixelController::sendVelocityCommand(uint8_t id, int32_t velocity)
 
 void DynamixelController::sendPositionCommand(uint8_t id, int32_t position) 
 {
+    // 範囲を 1800 ～ 2200 に制限
+    const int32_t min_position = 1948;
+    const int32_t max_position = 2148;
+
+    if (position < min_position) {
+        position = min_position;  // 範囲より小さい場合は最小値にクリップ
+    } else if (position > max_position) {
+        position = max_position;  // 範囲より大きい場合は最大値にクリップ
+    }
+
     uint8_t dxl_error = 0;
     int dxl_comm_result = packetHandler_->write4ByteTxRx(portHandler_, id, 116, position, &dxl_error);
+
     if (dxl_comm_result != COMM_SUCCESS) 
     {
         RCLCPP_ERROR(this->get_logger(), "Failed to set position: %s", packetHandler_->getTxRxResult(dxl_comm_result));
@@ -239,6 +259,7 @@ void DynamixelController::sendPositionCommand(uint8_t id, int32_t position)
         RCLCPP_INFO(this->get_logger(), "Position set to: %d for motor ID %d", position, id);
     }
 }
+
 
 void DynamixelController::setLED(uint8_t id, bool state) 
 {

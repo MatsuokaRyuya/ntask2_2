@@ -77,7 +77,9 @@ void JoySubscriber::joyCallback(const sensor_msgs::msg::Joy::SharedPtr msg)
     double speed = msg->axes[1] * 300.0;  // スティックの上下を速度に変換（ここは任意に調整）
 
     // 右スティックの横移動 (axes[3]) をラックアンドピニオンの位置に変換
-    double right_stick_input = msg->axes[3];
+    double right_stick_input = msg->axes[3];//-1から1まで
+
+    /*
     double max_rack_displacement = 20.0; // 最大ラック移動量（mm）
     double rack_position = right_stick_input * max_rack_displacement; // ラックの位置（mm）
 
@@ -85,15 +87,16 @@ void JoySubscriber::joyCallback(const sensor_msgs::msg::Joy::SharedPtr msg)
     // ここでラックの位置をステップ数に変換する
     double steps_per_mm = 4096.0 / 100.53;  // 1回転で10mm移動し、4096ステップ
     int32_t position = static_cast<int32_t>(rack_position * steps_per_mm); // ラック位置をステップ数に変換
+    */
 
     // モーター制御メッセージを作成
     auto position_msg = std::make_shared<std_msgs::msg::Float64>();
-    position_msg->data = position;
+    position_msg->data = right_stick_input;
 
     // Dynamixelモーターにラックの位置をコマンドとして送信
     publisher_->publish(*position_msg);
 
-    RCLCPP_INFO(this->get_logger(), "Published speed: %.2f, Rack position: %.2f", speed, rack_position);
+    RCLCPP_INFO(this->get_logger(), "Published speed: %.2f, Rack position: %.2f", speed, right_stick_input);
 }
 
 int main(int argc, char **argv) 
