@@ -13,8 +13,8 @@ public:
     ~DynamixelController();
 
 private:
-    void commandCallback(const std_msgs::msg::Float64::SharedPtr msg);
-    void setRackPositionCallback(const std_msgs::msg::Float64::SharedPtr msg);
+    void speedCallback(const std_msgs::msg::Float64::SharedPtr msg);
+    void positionCallback(const std_msgs::msg::Float64::SharedPtr msg);
 
     void enableTorque(uint8_t id);
     void disableTorque(uint8_t id);
