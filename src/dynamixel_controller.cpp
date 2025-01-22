@@ -70,54 +70,6 @@ DynamixelController::~DynamixelController()
     portHandler_->closePort(); // シリアルポートを閉じる
 }
 
-int32_t DynamixelController::getMotorPosition()
-{
-    uint8_t dxl_error = 0;
-    uint32_t motor_position = 0;  // motor_position を uint32_t に変更
-
-    // 位置情報を取得 (アドレス132で読み取る)
-    int dxl_comm_result = packetHandler_->read4ByteTxRx(portHandler_, motor_id_, 132, &motor_position, &dxl_error);
-    
-    if (dxl_comm_result != COMM_SUCCESS)
-    {
-        RCLCPP_ERROR(this->get_logger(), "Failed to get motor position: %s", packetHandler_->getTxRxResult(dxl_comm_result));
-    }
-    else
-    {
-        RCLCPP_INFO(this->get_logger(), "Motor position: %d", motor_position);
-    }
-
-    // 返り値を int32_t にキャストして返す
-    return static_cast<int32_t>(motor_position);
-}
-
-
-// モーターの位置を設定する
-void DynamixelController::setMotorPosition(int32_t position)
-{
-    uint8_t dxl_error = 0;
-
-    // モーターの目標位置を設定 (アドレス116で書き込み)
-    int dxl_comm_result = packetHandler_->write4ByteTxRx(portHandler_, motor_id_, 116, position, &dxl_error);
-
-    if (dxl_comm_result != COMM_SUCCESS)
-    {
-        RCLCPP_ERROR(this->get_logger(), "Failed to set motor position: %s", packetHandler_->getTxRxResult(dxl_comm_result));
-    }
-    else
-    {
-        RCLCPP_INFO(this->get_logger(), "Set motor position to: %d", position);
-    }
-}
-
-// モーターの初期位置を取得して設定する
-void DynamixelController::initializeMotorPosition()
-{
-    // 現在の位置を取得して初期位置として設定
-    int32_t initial_position = getMotorPosition();
-    setMotorPosition(initial_position);  // 初期位置をセット
-}
-
 void DynamixelController::speedCommandCallback(const std_msgs::msg::Float64::SharedPtr msg) 
 {
     double speed = msg->data;
