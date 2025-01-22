@@ -18,7 +18,8 @@ private:
     void joyCallback(const sensor_msgs::msg::Joy::SharedPtr msg);
 
     rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr subscription_; // Joyトピックの購読
-    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr publisher_;      // Dynamixel制御用パブリッシャー
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr speed_publisher_;      // Dynamixel制御用パブリッシャー
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr position_publisher_;
 };
 
 #endif
