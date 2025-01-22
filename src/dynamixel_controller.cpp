@@ -64,7 +64,7 @@ void DynamixelController::commandCallback(const std_msgs::msg::Float64::SharedPt
 {
     double speed = msg->data;
     int32_t velocity_value = static_cast<int32_t>(speed);
-    for (uint8_t id : motor_ids_) 
+    for (uint8_t id : 2) 
     {
         sendVelocityCommand(id, velocity_value);
     }
