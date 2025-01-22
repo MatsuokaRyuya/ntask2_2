@@ -12,7 +12,7 @@ DynamixelController::DynamixelController() : Node("dynamixel_controller")
         "/rack_position/command", 10,
         std::bind(&DynamixelController::setRackPositionCallback, this, std::placeholders::_1));
 
-    portHandler_ = dynamixel::PortHandler::getPortHandler("/dev/ttyUSB0");
+    portHandler_ = dynamixel::PortHandler::getPortHandler("/dev/ttyUSB1");
     packetHandler_ = dynamixel::PacketHandler::getPacketHandler(2.0);
 
     if (portHandler_->openPort()) 
