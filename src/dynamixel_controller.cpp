@@ -2,21 +2,19 @@
 
 DynamixelController::DynamixelController() : Node("dynamixel_controller") 
 {
-    // ID 1と2の速度制御用トピック購読
+    // 速度制御用のトピック購読
     subscription_ = this->create_subscription<std_msgs::msg::Float64>(
-        "/dynamixel_motor/speed_command", 10,
-        std::bind(&DynamixelController::speedCommandCallback, this, std::placeholders::_1));
+        "/dynamixel_motor/command", 10,
+        std::bind(&DynamixelController::commandCallback, this, std::placeholders::_1));
 
-    // ID 3の位置制御用トピック購読
+    // ラックアンドピニオン位置制御用のトピック購読
     rack_position_subscription_ = this->create_subscription<std_msgs::msg::Float64>(
         "/rack_position/command", 10,
-        std::bind(&DynamixelController::positionCommandCallback, this, std::placeholders::_1));
+        std::bind(&DynamixelController::setRackPositionCallback, this, std::placeholders::_1));
 
-    // Dynamixel用通信ハンドラーの初期化
-    portHandler_ = dynamixel::PortHandler::getPortHandler("/dev/ttyUSB1");
+    portHandler_ = dynamixel::PortHandler::getPortHandler("/dev/ttyUSB0");
     packetHandler_ = dynamixel::PacketHandler::getPacketHandler(2.0);
 
-    // シリアルポートを開く
     if (portHandler_->openPort()) 
     {
         RCLCPP_INFO(this->get_logger(), "Port opened successfully.");
@@ -25,10 +23,8 @@ DynamixelController::DynamixelController() : Node("dynamixel_controller")
     {
         RCLCPP_ERROR(this->get_logger(), "Failed to open the port.");
         rclcpp::shutdown();
-        return;
     }
 
-    // ボーレートを設定
     if (portHandler_->setBaudRate(57600)) 
     {
         RCLCPP_INFO(this->get_logger(), "Baudrate set successfully.");
@@ -37,62 +33,45 @@ DynamixelController::DynamixelController() : Node("dynamixel_controller")
     {
         RCLCPP_ERROR(this->get_logger(), "Failed to set baudrate.");
         rclcpp::shutdown();
-        return;
     }
 
-    // 制御対象のモーターID
-    motor_ids_ = {1, 2, 3};
+    motor_ids_ = {1, 2, 3}; // 使用するモーターのIDを設定
 
-    // 各モーターの初期化
+    // 各モーターの初期設定
     for (uint8_t id : motor_ids_) 
     {
         enableTorque(id);
-
-        // ID 3を位置制御モードに設定、それ以外は速度制御
         if (id == 3) 
         {
             setPositionControlMode(id); // ID 3を位置制御モードに設定
             sendPositionCommand(id, 2048); // 初期位置を2048に設定
         }
-
         setLED(id, true); // 起動時にLEDを点灯
     }
 }
 
 DynamixelController::~DynamixelController() 
 {
-    // プログラム終了時にモーターを停止
     for (uint8_t id : motor_ids_) 
     {
-        setLED(id, false); // LEDを消灯
-        disableTorque(id); // トルクを無効化
+        setLED(id, false); // 終了時にLEDを消灯
+        disableTorque(id);
     }
-    portHandler_->closePort(); // シリアルポートを閉じる
+    portHandler_->closePort();
 }
 
-void DynamixelController::speedCommandCallback(const std_msgs::msg::Float64::SharedPtr msg) 
+void DynamixelController::commandCallback(const std_msgs::msg::Float64::SharedPtr msg) 
 {
     double speed = msg->data;
     int32_t velocity_value = static_cast<int32_t>(speed);
-
-    // ID 1と2のモーターに速度コマンドを送信
-    for (uint8_t id : {1, 2}) 
+    for (uint8_t id : motor_ids_) 
     {
-        if (id == 1) 
-        {
-            sendVelocityCommand(id, velocity_value);
-        } 
-        else 
-        {
-            // 逆回転
-            sendVelocityCommand(id, -velocity_value);
-        }
+        sendVelocityCommand(id, velocity_value);
     }
-
     RCLCPP_INFO(this->get_logger(), "Set velocity: %.2f", speed);
 }
 
-void DynamixelController::positionCommandCallback(const std_msgs::msg::Float64::SharedPtr msg)
+void DynamixelController::setRackPositionCallback(const std_msgs::msg::Float64::SharedPtr msg) 
 {
     double displacement_mm = msg->data;//-1から1まで
     double steps_per_mm = 100; //4096/360=11.37で1度につき11ステップ,2048+-100にしてみる
@@ -108,9 +87,7 @@ void DynamixelController::positionCommandCallback(const std_msgs::msg::Float64::
         position_value = max_position;
     }
 
-    // モーターに位置コマンドを送信
-    sendPositionCommand(3, position_value);
-
+    sendPositionCommand(3, position_value); // ID 3のモーターを制御
     RCLCPP_INFO(this->get_logger(), "Rack position command: %.2f mm, steps: %d", displacement_mm, position_value);
 }
 
@@ -153,7 +130,7 @@ void DynamixelController::disableTorque(uint8_t id)
 void DynamixelController::setPositionControlMode(uint8_t id) 
 {
     uint8_t dxl_error = 0;
-    int dxl_comm_result = packetHandler_->write1ByteTxRx(portHandler_, id, 11, 3, &dxl_error); // 3: 位置制御モード
+    int dxl_comm_result = packetHandler_->write1ByteTxRx(portHandler_, id, 11, 3, &dxl_error); // 3は位置制御モード
     if (dxl_comm_result != COMM_SUCCESS) 
     {
         RCLCPP_ERROR(this->get_logger(), "Failed to set position control mode: %s", packetHandler_->getTxRxResult(dxl_comm_result));
