@@ -12,7 +12,7 @@ DynamixelController::DynamixelController() : Node("dynamixel_controller")
         "/dynamixel_motor/command", 10,
         std::bind(&DynamixelController::positionCallback, this, std::placeholders::_1));
 
-    portHandler_ = dynamixel::PortHandler::getPortHandler("/dev/ttyUSB1");
+    portHandler_ = dynamixel::PortHandler::getPortHandler("/dev/ttyUSB0");
     packetHandler_ = dynamixel::PacketHandler::getPacketHandler(2.0);
 
     if (portHandler_->openPort()) 
@@ -74,14 +74,21 @@ void DynamixelController::speedCallback(const std_msgs::msg::Float64::SharedPtr 
 void DynamixelController::positionCallback(const std_msgs::msg::Float64::SharedPtr msg) 
 {
     double displacement_mm = msg->data; // -1から1まで
-    double steps_per_mm = 100; // 1mmあたりのステップ数
-    int32_t position_value = static_cast<int32_t>(1400 + displacement_mm * steps_per_mm);
+    double steps_per_mm = 500; // 1mmあたりのステップ数
+    int32_t position_value = static_cast<int32_t>(1400 - displacement_mm * steps_per_mm);
 
     // 範囲を1400±500に制限
     const int32_t min_position = 900;
     const int32_t max_position = 1900;
 
-    position_value = std::clamp(position_value, min_position, max_position);
+    if (position_value < min_position) 
+    {
+        position_value = min_position;  // 範囲より小さい場合は最小値にクリップ
+    } 
+    else if (position_value > max_position) 
+    {
+        position_value = max_position;  // 範囲より大きい場合は最大値にクリップ
+    }
 
     sendPositionCommand(3, position_value); // ID 3のモーターを制御
     RCLCPP_INFO(this->get_logger(), "Rack position command: %.2f mm, steps: %d", displacement_mm, position_value);
@@ -144,22 +151,24 @@ void DynamixelController::setPositionControlMode(uint8_t id)
 void DynamixelController::sendVelocityCommand(uint8_t id, int32_t velocity) 
 {
     uint8_t dxl_error = 0;
-    int dxl_comm_result = packetHandler_->write4ByteTxRx(portHandler_, id, 104, velocity, &dxl_error);
-    if (dxl_comm_result != COMM_SUCCESS) 
+    for(int id = 1; id <=2; id++)
     {
-        RCLCPP_ERROR(this->get_logger(), "Failed to set velocity: %s", packetHandler_->getTxRxResult(dxl_comm_result));
-    } 
-    else if (dxl_error != 0) 
-    {
-        RCLCPP_ERROR(this->get_logger(), "Velocity set error: %s", packetHandler_->getRxPacketError(dxl_error));
+        if(id == 1)
+        {
+            int dxl_comm_result = packetHandler_->write4ByteTxRx(portHandler_, id, 104, velocity, &dxl_error);
+        }
+        else if(id == 2)
+        {
+            int dxl_comm_result = packetHandler_->write4ByteTxRx(portHandler_, id, 104, -velocity, &dxl_error);
+        }
     }
 }
 
 void DynamixelController::sendPositionCommand(uint8_t id, int32_t position) 
 {
-    // 範囲を 1800 ～ 2200 に制限
-    const int32_t min_position = 1948;
-    const int32_t max_position = 2148;
+    // 範囲を 900-1900 に制限
+    const int32_t min_position = 900;
+    const int32_t max_position = 1900;
 
     if (position < min_position) {
         position = min_position;  // 範囲より小さい場合は最小値にクリップ
