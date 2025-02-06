@@ -2,7 +2,7 @@
 #define NTASK2_2_JOY_HPP
 
 #include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/int32.hpp"
+#include "std_msgs/msg/int32.hpp"      // ボタン情報のためにInt32をインクルード
 #include "sensor_msgs/msg/joy.hpp"
 #include <numeric>
 #include <string>
@@ -18,8 +18,9 @@ private:
     void joyCallback(const sensor_msgs::msg::Joy::SharedPtr msg);
 
     rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr subscription_; // Joyトピックの購読
-    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr speed_publisher_;      // Dynamixel制御用パブリッシャー
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr speed_publisher_;  // Dynamixel制御用パブリッシャー
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr position_publisher_;
+    rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr button_publisher_;  // 修正: Int32型に変更
 };
 
 #endif

@@ -11,43 +11,27 @@ DynamixelController::DynamixelController() : Node("dynamixel_controller")
     position_subscription_ = this->create_subscription<std_msgs::msg::Float64>(
         "/dynamixel_motor/command", 10,
         std::bind(&DynamixelController::positionCallback, this, std::placeholders::_1));
+    
+    // ボタンのコマンドを受け取る
+    button_subscription_ = this->create_subscription<std_msgs::msg::Int32>(
+        "/dynamixel_motor/button_command", 10, 
+        std::bind(&DynamixelController::buttonCallback, this, std::placeholders::_1));
 
     portHandler_ = dynamixel::PortHandler::getPortHandler("/dev/ttyUSB0");
     packetHandler_ = dynamixel::PacketHandler::getPacketHandler(2.0);
 
-    if (portHandler_->openPort()) 
-    {
-        RCLCPP_INFO(this->get_logger(), "Port opened successfully.");
-    } 
-    else 
-    {
-        RCLCPP_ERROR(this->get_logger(), "Failed to open the port.");
-        rclcpp::shutdown();
-    }
-
-    if (portHandler_->setBaudRate(57600)) 
-    {
-        RCLCPP_INFO(this->get_logger(), "Baudrate set successfully.");
-    } 
-    else 
-    {
-        RCLCPP_ERROR(this->get_logger(), "Failed to set baudrate.");
-        rclcpp::shutdown();
-    }
-
     motor_ids_ = {1, 2, 3}; // 使用するモーターのIDを設定
+    base_position_ = 0;  // 初期化
 
     // 各モーターの初期設定
     for (uint8_t id : motor_ids_) 
     {
         enableTorque(id);
-        if (id == 3) 
-        {
-            setPositionControlMode(id); // ID 3を位置制御モードに設定
-            sendPositionCommand(id, 1400); // 初期位置を1400に設定
-        }
+        setVelocityControlMode(id);
         setLED(id, true); // 起動時にLEDを点灯
     }
+
+    calibratePosition(3);
 }
 
 DynamixelController::~DynamixelController() 
@@ -73,143 +57,134 @@ void DynamixelController::speedCallback(const std_msgs::msg::Float64::SharedPtr 
 
 void DynamixelController::positionCallback(const std_msgs::msg::Float64::SharedPtr msg) 
 {
-    double displacement_mm = msg->data; // -1から1まで
-    double steps_per_mm = 500; // 1mmあたりのステップ数
-    int32_t position_value = static_cast<int32_t>(1400 - displacement_mm * steps_per_mm);
+    double joystick_input = msg->data; // -1 から 1 までの値
+    double deadzone = 0.05;
+    double max_speed = 200;  // 最大速度 (Dynamixel の設定に応じて調整)
 
-    // 範囲を1400±500に制限
-    const int32_t min_position = 900;
-    const int32_t max_position = 1900;
-
-    if (position_value < min_position) 
+    if (std::abs(joystick_input) < deadzone) 
     {
-        position_value = min_position;  // 範囲より小さい場合は最小値にクリップ
-    } 
-    else if (position_value > max_position) 
-    {
-        position_value = max_position;  // 範囲より大きい場合は最大値にクリップ
+        joystick_input = 0.0;
     }
 
-    sendPositionCommand(3, position_value); // ID 3のモーターを制御
-    RCLCPP_INFO(this->get_logger(), "Rack position command: %.2f mm, steps: %d", displacement_mm, position_value);
+    int32_t velocity = static_cast<int32_t>(joystick_input * max_speed);
+    
+    int32_t current_position = readPosition(3); // 現在位置を取得
+    if (current_position == -1) return; // 位置取得失敗時は処理しない
+
+    // 移動範囲制限
+    const int32_t min_position = base_position_ - 500;
+    const int32_t max_position = base_position_ + 500;
+
+    // 限界位置に到達したら速度を 0 にする
+    if ((current_position <= min_position && velocity < 0) || 
+        (current_position >= max_position && velocity > 0)) 
+    {
+        velocity = 0;
+    }
+
+    sendVelocityCommand(3, velocity); // 速度指令を送信
+
+    RCLCPP_INFO(this->get_logger(), "Joystick: %.2f, Speed: %d, Position: %d", 
+                joystick_input, velocity, current_position);
+
+    // ジョイスティックを戻したら基準位置へゆっくり戻る
+    if (joystick_input == 0) 
+    {
+        int32_t return_speed = (base_position_ - current_position) * 0.5; // 緩やかに戻る
+        return_speed = std::clamp(return_speed, static_cast<int32_t>(-max_speed), static_cast<int32_t>(max_speed));
+        sendVelocityCommand(3, return_speed);
+    }
+}
+
+void DynamixelController::buttonCallback(const std_msgs::msg::Int32::SharedPtr msg) 
+{
+    if (msg->data == 1) // ボタン 5 (L1 / LB) が押されたら
+    {
+        int32_t new_base = readPosition(3);
+        if (new_base != -1) 
+        {
+            base_position_ = new_base;
+            RCLCPP_INFO(this->get_logger(), "Calibration complete! New base position: %d", base_position_);
+        }
+        else 
+        {
+            RCLCPP_ERROR(this->get_logger(), "Calibration failed: Unable to read position.");
+        }
+    }
 }
 
 void DynamixelController::enableTorque(uint8_t id) 
 {
     uint8_t dxl_error = 0;
     int dxl_comm_result = packetHandler_->write1ByteTxRx(portHandler_, id, 64, 1, &dxl_error);
-    if (dxl_comm_result != COMM_SUCCESS) 
-    {
-        RCLCPP_ERROR(this->get_logger(), "Torque enable failed: %s", packetHandler_->getTxRxResult(dxl_comm_result));
-    } 
-    else if (dxl_error != 0) 
-    {
-        RCLCPP_ERROR(this->get_logger(), "Torque enable error: %s", packetHandler_->getRxPacketError(dxl_error));
-    } 
-    else 
-    {
-        RCLCPP_INFO(this->get_logger(), "Torque enabled for motor ID %d", id);
-    }
 }
 
 void DynamixelController::disableTorque(uint8_t id) 
 {
     uint8_t dxl_error = 0;
     int dxl_comm_result = packetHandler_->write1ByteTxRx(portHandler_, id, 64, 0, &dxl_error);
+}
+
+int32_t DynamixelController::readPosition(uint8_t id)
+{
+    uint8_t dxl_error = 0;
+    int dxl_comm_result;
+    uint32_t dxl_present_position = 0; // 現在位置
+
+    dxl_comm_result = packetHandler_->read4ByteTxRx(portHandler_, id, 132, &dxl_present_position, &dxl_error);
     if (dxl_comm_result != COMM_SUCCESS) 
     {
-        RCLCPP_ERROR(this->get_logger(), "Torque disable failed: %s", packetHandler_->getTxRxResult(dxl_comm_result));
-    } 
-    else if (dxl_error != 0) 
+        RCLCPP_ERROR(this->get_logger(), "Failed to read position for ID %d: %s",
+                     id, packetHandler_->getTxRxResult(dxl_comm_result));
+        return -1; // エラー時は -1 を返す
+    }
+
+    return static_cast<int32_t>(dxl_present_position);
+}
+
+void DynamixelController::calibratePosition(uint8_t id)
+{
+    uint8_t dxl_error = 0;
+    int dxl_comm_result;
+    uint32_t dxl_present_position = 0; // 位置データ格納用
+
+    // 4バイトのデータを読み取る（現在位置取得）
+    dxl_comm_result = packetHandler_->read4ByteTxRx(portHandler_, id, 132, &dxl_present_position, &dxl_error);
+
+    if (dxl_comm_result != COMM_SUCCESS) 
     {
-        RCLCPP_ERROR(this->get_logger(), "Torque disable error: %s", packetHandler_->getRxPacketError(dxl_error));
+        RCLCPP_ERROR(this->get_logger(), "Failed to read position for ID %d: %s",
+                     id, packetHandler_->getTxRxResult(dxl_comm_result));
     } 
     else 
     {
-        RCLCPP_INFO(this->get_logger(), "Torque disabled for motor ID %d", id);
+        base_position_ = static_cast<int32_t>(dxl_present_position); // 基準位置を保存
+        RCLCPP_INFO(this->get_logger(), "Calibration complete. Base position for ID %d: %d", id, base_position_);
     }
 }
 
-void DynamixelController::setPositionControlMode(uint8_t id) 
+void DynamixelController::setVelocityControlMode(uint8_t id) 
 {
     uint8_t dxl_error = 0;
-    int dxl_comm_result = packetHandler_->write1ByteTxRx(portHandler_, id, 11, 3, &dxl_error); // 3は位置制御モード
-    if (dxl_comm_result != COMM_SUCCESS) 
-    {
-        RCLCPP_ERROR(this->get_logger(), "Failed to set position control mode: %s", packetHandler_->getTxRxResult(dxl_comm_result));
-    } 
-    else if (dxl_error != 0) 
-    {
-        RCLCPP_ERROR(this->get_logger(), "Position control mode error: %s", packetHandler_->getRxPacketError(dxl_error));
-    } 
-    else 
-    {
-        RCLCPP_INFO(this->get_logger(), "Position control mode set for motor ID %d", id);
-    }
+    int dxl_comm_result = packetHandler_->write1ByteTxRx(portHandler_, id, 11, 1, &dxl_error); // 1は速度制御モード
 }
 
 void DynamixelController::sendVelocityCommand(uint8_t id, int32_t velocity) 
 {
     uint8_t dxl_error = 0;
-    for(int id = 1; id <=2; id++)
-    {
-        if(id == 1)
-        {
-            int dxl_comm_result = packetHandler_->write4ByteTxRx(portHandler_, id, 104, velocity, &dxl_error);
-        }
-        else if(id == 2)
-        {
-            int dxl_comm_result = packetHandler_->write4ByteTxRx(portHandler_, id, 104, -velocity, &dxl_error);
-        }
-    }
-}
-
-void DynamixelController::sendPositionCommand(uint8_t id, int32_t position) 
-{
-    // 範囲を 900-1900 に制限
-    const int32_t min_position = 900;
-    const int32_t max_position = 1900;
-
-    if (position < min_position) {
-        position = min_position;  // 範囲より小さい場合は最小値にクリップ
-    } else if (position > max_position) {
-        position = max_position;  // 範囲より大きい場合は最大値にクリップ
-    }
-
-    uint8_t dxl_error = 0;
-    int dxl_comm_result = packetHandler_->write4ByteTxRx(portHandler_, id, 116, position, &dxl_error);
-
+    // 修正: motor_id ループではなく、指定された id のみを使用する
+    int dxl_comm_result = packetHandler_->write4ByteTxRx(portHandler_, id, 104, velocity, &dxl_error);
     if (dxl_comm_result != COMM_SUCCESS) 
     {
-        RCLCPP_ERROR(this->get_logger(), "Failed to set position: %s", packetHandler_->getTxRxResult(dxl_comm_result));
-    } 
-    else if (dxl_error != 0) 
-    {
-        RCLCPP_ERROR(this->get_logger(), "Position set error: %s", packetHandler_->getRxPacketError(dxl_error));
-    } 
-    else 
-    {
-        RCLCPP_INFO(this->get_logger(), "Position set to: %d for motor ID %d", position, id);
+        RCLCPP_ERROR(this->get_logger(), "Failed to send velocity command to motor ID %d: %s", 
+                     id, packetHandler_->getTxRxResult(dxl_comm_result));
     }
 }
-
 
 void DynamixelController::setLED(uint8_t id, bool state) 
 {
     uint8_t dxl_error = 0;
     int dxl_comm_result = packetHandler_->write1ByteTxRx(portHandler_, id, 65, state ? 1 : 0, &dxl_error);
-    if (dxl_comm_result != COMM_SUCCESS) 
-    {
-        RCLCPP_ERROR(this->get_logger(), "Failed to set LED: %s", packetHandler_->getTxRxResult(dxl_comm_result));
-    } 
-    else if (dxl_error != 0) 
-    {
-        RCLCPP_ERROR(this->get_logger(), "LED set error: %s", packetHandler_->getRxPacketError(dxl_error));
-    } 
-    else 
-    {
-        RCLCPP_INFO(this->get_logger(), "LED %s for motor ID %d", state ? "on" : "off", id);
-    }
 }
 
 int main(int argc, char **argv) 
