@@ -14,7 +14,7 @@ JoySubscriber::JoySubscriber() : Node("joy_subscriber")
 
 void JoySubscriber::joyCallback(const sensor_msgs::msg::Joy::SharedPtr msg) 
 {
-    double speed = msg->axes[1] * 150.0;
+    double speed = msg->axes[1] * 70.0;
     double right_stick_input = msg->axes[3];
 
     auto speed_msg = std::make_shared<std_msgs::msg::Float64>();

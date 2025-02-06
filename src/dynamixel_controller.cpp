@@ -21,8 +21,14 @@ DynamixelController::DynamixelController() : Node("dynamixel_controller")
     packetHandler_ = dynamixel::PacketHandler::getPacketHandler(2.0);
 
     motor_ids_ = {1, 2, 3}; // 使用するモーターのIDを設定
-    base_position_ = 0;  // 初期化
+    if (portHandler_->setBaudRate(57600)) {
+        RCLCPP_INFO(this->get_logger(), "Succeeded to change the baudrate!");
+    } else {
+    RCLCPP_ERROR(this->get_logger(), "Failed to change the baudrate!");
+    return;
+}
 
+    base_position_ = 0;  // 初期化
     // 各モーターの初期設定
     for (uint8_t id : motor_ids_) 
     {
@@ -50,7 +56,10 @@ void DynamixelController::speedCallback(const std_msgs::msg::Float64::SharedPtr 
     int32_t velocity_value = static_cast<int32_t>(speed);
     for (uint8_t id = 1; id <= 2; ++id) 
     {
-        sendVelocityCommand(id, velocity_value);
+        if(id == 1)
+        {sendVelocityCommand(id, velocity_value);}
+        else
+        {sendVelocityCommand(id, -velocity_value);}
     }
     RCLCPP_INFO(this->get_logger(), "Set velocity: %.2f", speed);
 }
@@ -59,7 +68,7 @@ void DynamixelController::positionCallback(const std_msgs::msg::Float64::SharedP
 {
     double joystick_input = msg->data; // -1 から 1 までの値
     double deadzone = 0.05;
-    double max_speed = 200;  // 最大速度 (Dynamixel の設定に応じて調整)
+    double max_speed = 100;  // 最大速度 (Dynamixel の設定に応じて調整)
 
     if (std::abs(joystick_input) < deadzone) 
     {
@@ -72,17 +81,17 @@ void DynamixelController::positionCallback(const std_msgs::msg::Float64::SharedP
     if (current_position == -1) return; // 位置取得失敗時は処理しない
 
     // 移動範囲制限
-    const int32_t min_position = base_position_ - 500;
-    const int32_t max_position = base_position_ + 500;
+    const int32_t min_position = base_position_ - 200;
+    const int32_t max_position = base_position_ + 200;
 
     // 限界位置に到達したら速度を 0 にする
-    if ((current_position <= min_position && velocity < 0) || 
-        (current_position >= max_position && velocity > 0)) 
+    if ((current_position <= min_position && -velocity < 0) || 
+        (current_position >= max_position && -velocity > 0)) 
     {
         velocity = 0;
     }
 
-    sendVelocityCommand(3, velocity); // 速度指令を送信
+    sendVelocityCommand(3, -velocity); // 速度指令を送信
 
     RCLCPP_INFO(this->get_logger(), "Joystick: %.2f, Speed: %d, Position: %d", 
                 joystick_input, velocity, current_position);
@@ -90,36 +99,36 @@ void DynamixelController::positionCallback(const std_msgs::msg::Float64::SharedP
     // ジョイスティックを戻したら基準位置へゆっくり戻る
     if (joystick_input == 0) 
     {
-        int32_t return_speed = (base_position_ - current_position) * 0.5; // 緩やかに戻る
+        int32_t return_speed = (base_position_ - current_position) * 0.15; // 緩やかに戻る
         return_speed = std::clamp(return_speed, static_cast<int32_t>(-max_speed), static_cast<int32_t>(max_speed));
         sendVelocityCommand(3, return_speed);
     }
 }
 
-void DynamixelController::buttonCallback(const std_msgs::msg::Int32::SharedPtr msg) 
+void DynamixelController::buttonCallback(const std_msgs::msg::Int32::SharedPtr msg)
 {
     if (msg->data == 1) // ボタン 5 (L1 / LB) が押されたら
     {
         int32_t new_base = readPosition(3);
-        if (new_base != -1) 
+        if (new_base != -1)
         {
             base_position_ = new_base;
             RCLCPP_INFO(this->get_logger(), "Calibration complete! New base position: %d", base_position_);
         }
-        else 
+        else
         {
             RCLCPP_ERROR(this->get_logger(), "Calibration failed: Unable to read position.");
         }
     }
 }
 
-void DynamixelController::enableTorque(uint8_t id) 
+void DynamixelController::enableTorque(uint8_t id)
 {
     uint8_t dxl_error = 0;
     int dxl_comm_result = packetHandler_->write1ByteTxRx(portHandler_, id, 64, 1, &dxl_error);
 }
 
-void DynamixelController::disableTorque(uint8_t id) 
+void DynamixelController::disableTorque(uint8_t id)
 {
     uint8_t dxl_error = 0;
     int dxl_comm_result = packetHandler_->write1ByteTxRx(portHandler_, id, 64, 0, &dxl_error);
@@ -132,10 +141,10 @@ int32_t DynamixelController::readPosition(uint8_t id)
     uint32_t dxl_present_position = 0; // 現在位置
 
     dxl_comm_result = packetHandler_->read4ByteTxRx(portHandler_, id, 132, &dxl_present_position, &dxl_error);
-    if (dxl_comm_result != COMM_SUCCESS) 
+    if (dxl_comm_result != COMM_SUCCESS)
     {
         RCLCPP_ERROR(this->get_logger(), "Failed to read position for ID %d: %s",
-                     id, packetHandler_->getTxRxResult(dxl_comm_result));
+                    id, packetHandler_->getTxRxResult(dxl_comm_result));
         return -1; // エラー時は -1 を返す
     }
 
